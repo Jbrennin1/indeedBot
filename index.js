@@ -25,7 +25,7 @@ const queryString = 'https://www.indeed.com/jobs?q=' + query + remote + '&l=' + 
     await page.goto(queryString)
     console.log("Initiating search...")
     await page.waitForSelector('li')
-
+    console.log("found selector")
     // easy apply
         await findJobs(page, browser, count)
 })();

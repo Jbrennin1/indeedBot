@@ -7,8 +7,13 @@ async function determinePageType(browser, jobs, page, count)
     {
             await page.bringToFront()
             let title = await page.title()
-            //console.log(count + "|" + title)
-            setTimeout(async() => { 
+            console.log(count + "|" + title)
+            if (await page.$('#input-firstName') !== null) { // Checks if the first name field is present
+                await fillContactInformationForm(page);
+                return; // Stop execution to prevent timeout
+            }
+
+            setTimeout(async() => {
                 await evaluateInputs(browser, jobs, page, count, title)
             }, 7000);
     }
@@ -63,8 +68,33 @@ async function determinePageType(browser, jobs, page, count)
         }
     }
 
+    async function fillContactInformationForm(page) {
+        console.log("Filling in the contact information form...");
+
+        // Assuming default values for demonstration. Replace with actual values or use environment variables as needed.
+        const firstName = 'John';
+        const lastName = 'Doe';
+        const email = 'john.doe@example.com'; // This field might be pre-filled and read-only.
+        const phoneNumber = '234567890'; // Optional, based on your requirements.
+
+        // Fill in the First Name and Last Name
+        await page.type('#input-firstName', firstName);
+        await page.type('#input-lastName', lastName);
+
+        // Check if the Phone Number field exists and fill it in (if applicable).
+        if (await page.$('#input-phoneNumber') !== null) {
+            await page.type('#input-phoneNumber', phoneNumber);
+        }
+
+        // Click the "Continue" button to proceed with the application
+        const continueButtonSelector = '.css-pqhqxt button[type="button"]'; // Adjust selector as needed
+        await page.click(continueButtonSelector);
+
+        console.log("Contact information form submitted.");
+    }
+
     async function evaluateInputs(browser, jobs, page, count, title)
-    {     
+    {
         switch(title)
         {
             case 'Answer screener questions from the employer | Indeed.com' : {
@@ -123,9 +153,9 @@ async function determinePageType(browser, jobs, page, count)
                         // determined issue is raw value being returned, still have to debug y
                         return filteredInputs
                         })
-                        
+
                         await fillInputs(inputs, page)
-                        
+
                         let button = await page.waitForSelector('.ia-continueButton')
                         await button.click()
                         break
@@ -182,43 +212,51 @@ async function determinePageType(browser, jobs, page, count)
             }
             if(title != 'Your application has been submitted | Indeed.com')
             {
-                setTimeout(async() => { 
+                setTimeout(async() => {
                     await determinePageType(browser, jobs, page, count)
                 }, 5000);
             }
     }
 
     async function clickApply(browser, jobs, count, page = null) {
-                
-                if(count < jobs.length)
-                {
-                let page = await browser.newPage()
-                    await page.goto(jobs[count].href)
-                    let button = await page.$$eval('button', e => {
-                let innerButton = e.filter((e) => e.innerText == "Apply now" || e.innerText == "Applied")[0]
-                return { id:"#" + innerButton.id, type:innerButton.innerText }
-                })
-                
-                if(button.type == "Apply now")
-                {                    
-                    await page.click(button.id)
-                    setTimeout(async() => { 
-                        await determinePageType(browser, jobs, page, count)
-                    }, 6000);
-                }
-                    else if(button.type == "Applied")
-                    {
-                        console.log("Already applied!")
-                        await page.close()
-                        await clickApply(browser, jobs, count + 1)
-                    }
+        console.log(`Attempting to apply for job ${count + 1}: ${jobs[count].title} at ${jobs[count].organization}`);
+        if (count < jobs.length) {
+            let jobPage = await browser.newPage();
+            await jobPage.goto(jobs[count].href, { waitUntil: 'networkidle2' });
+            console.log(`Navigated to job page: ${jobs[count].title}`);
+
+            try {
+                // Updated selector to target the new "Apply now" button structure
+                const applyButtonSelector = 'button[id="indeedApplyButton"]';
+
+                // Wait for the "Apply now" button to be rendered in the DOM
+                await jobPage.waitForSelector(applyButtonSelector, { timeout: 5000 });
+                console.log('Found "Apply now" button.');
+
+                // Click the "Apply now" button
+                await jobPage.click(applyButtonSelector);
+                console.log('Clicked "Apply now" button.');
+
+                // Wait for navigation to ensure the click has led to a new page
+                await jobPage.waitForNavigation({ waitUntil: 'networkidle2', timeout: 10000 }).catch(e => console.log('Navigation timeout after click.'));
+                console.log('Navigation after click confirmed.');
+
+                setTimeout(async () => {
+                    await determinePageType(browser, jobs, jobPage, count);
+                }, 6000);
+            } catch (error) {
+                console.error(`Error clicking "Apply now" button for ${jobs[count].title}: ${error.message}`);
+                await jobPage.close();
+                await clickApply(browser, jobs, count + 1); // Proceed to the next job
             }
-            else
-            {   
-                let page = await browser.pages()
-                return await gotoNextPage(page[0], browser, count)
-            }
-}
+        } else {
+            let pages = await browser.pages();
+            return await gotoNextPage(pages[0], browser, count);
+        }
+    }
+
+
+
 
 async function gotoNextPage(page, browser, count) {
             count = 0
@@ -234,8 +272,8 @@ async function gotoNextPage(page, browser, count) {
                     console.log("Done with this page. Moving on... | Traversed " + pageCount + " page so far.")
                 }
             }
-            setTimeout(async() => { 
-                try{                    
+            setTimeout(async() => {
+                try{
                     const nextPage = await page.waitForSelector(('a[data-testid=pagination-page-next]'))
                     await nextPage.click()
                     }
@@ -255,45 +293,39 @@ async function gotoNextPage(page, browser, count) {
 }
 
 async function findJobs(page, browser, count) {
+    try {
+        console.log("Initiating search...");
+        await page.waitForSelector('div[data-testid="slider_item"]', {timeout: 10000}); // Wait for the job listings to load
+        console.log("found job listing selector");
 
-        await page.waitForSelector('li')
-        const jobs = await page.$$eval('li', (e) => {
-                var filteredJobs = e.filter(e => e.querySelectorAll('td.indeedApply').length > 0 && e.querySelectorAll('.applied-snippet').length == 0)
-                .map(e => e = {
-                    title: e.getElementsByClassName('jcs-JobTitle')[0].innerText,
-                    organization: e.getElementsByClassName('companyName')[0].innerText,
-                    href: e.getElementsByClassName('jcs-JobTitle')[0].href,
-                })
+        const jobs = await page.$$eval('div[data-testid="slider_item"]', (listings) => {
+            return listings.map(listing => {
+                const titleElement = listing.querySelector('h2.jobTitle > a');
+                const companyElement = listing.querySelector('[data-testid="company-name"]');
+                const locationElement = listing.querySelector('[data-testid="text-location"]');
+                return {
+                    title: titleElement ? titleElement.innerText : "Title not found",
+                    organization: companyElement ? companyElement.innerText : "Company not found",
+                    location: locationElement ? locationElement.innerText : "Location not found",
+                    href: titleElement ? titleElement.href : "#"
+                };
+            });
+        });
 
-                return filteredJobs
-            })
+        console.log("Jobs found: ", jobs);
 
-            // iteratively complete applications
-        /*for(let i = 0; i < jobs.length; i++)
-        {
-                    totalJobs++
-                    console.log("[" + totalJobs + "] | " + jobs[i].title + " | " + jobs[i].organization)
-        }*/
-                //console.log("[" + count.easy + "]" + '[' + date.format(new Date(), 'YYYY/MM/DD HH:mm:ss') + '] *****' + " /|\\ " + jobs[i].title + ' | LOCATION:' + jobs[i].organization)
-                /*setTimeout(async() => { 
-                    await gotoNextPage(page, browser, count)
-                }, 5000)*/
-                if(count < jobs.length)
-                {
-                    try
-                    {
-                        return await clickApply(browser, jobs, count)
-                    }
-                    catch(e)
-                    {
-                        console.log(e)
-                        return await gotoNextPage(page, browser, count)
-                    }
-                }
-                else
-                {
-                    return await gotoNextPage(page, browser, count)
-                }
+        // Proceed with job application logic
+        if (jobs.length > 0) {
+            console.log("Proceeding to apply to jobs...");
+            return await clickApply(browser, jobs, count);
+        } else {
+            console.log("No jobs found, going to the next page...");
+            return await gotoNextPage(page, browser, count);
+        }
+    } catch (e) {
+        console.log("Error finding jobs: ", e);
+    }
 }
+
 
 export { findJobs, clickApply, determinePageType, evaluateInputs }
