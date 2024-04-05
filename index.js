@@ -1,6 +1,6 @@
 import puppeteer from 'puppeteer-extra'
 import StealthPlugin from 'puppeteer-extra-plugin-stealth'
-import { findJobs, clickApply, determinePageType, evaluateInputs } from "./libs/funcs.js"
+import { findJobs, clickApply, determinePageType } from "./libs/funcs.js"
 import 'dotenv/config'
 
 let count = 0
